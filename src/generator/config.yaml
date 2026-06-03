@@ -19,5 +19,5 @@ market_close_time: "14:45"
 market_close_duration_min: 15
 
 # Others
-schema_change_date: "2025-10-01"
+schema_change_date: "2026-05-19"
 random_seed: 42

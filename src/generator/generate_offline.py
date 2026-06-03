@@ -1,5 +1,6 @@
 import os
 import random
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -68,6 +69,9 @@ EVENT_SOURCES = ["APP", "WEB"]
 faker = Faker("vi_VN")
 random.seed(cfg["random_seed"])
 np.random.seed(cfg["random_seed"])
+
+days_history_180 = 180
+days_history_30 = 30
 
 
 def random_ts(days_back=cfg["days_history"]):
@@ -139,10 +143,10 @@ def gen_accounts(customers, n_accounts=60000):
                 "account_status": random.choices(
                     ACCOUNT_STATUSES, weights=[0.96, 0.03, 0.01]
                 )[0],
-                "opened_ts": random_ts(180),
+                "opened_ts": random_ts(days_history_180),
                 "closed_ts": None,
-                "created_ts": random_ts(180),
-                "updated_ts": random_ts(30),
+                "created_ts": random_ts(days_history_180),
+                "updated_ts": random_ts(days_history_30),
             }
         )
     df = write_parquet(accounts, "accounts.parquet")
@@ -171,8 +175,8 @@ def gen_securities(n_securities=500):
                 ).isoformat(),
                 "is_active": random.choices(BOOLEAN_VALUES, weights=[0.97, 0.03])[0],
                 "base_price": round(random.uniform(5000, 150000), 2),
-                "created_ts": random_ts(180),
-                "updated_ts": random_ts(30),
+                "created_ts": random_ts(days_history_180),
+                "updated_ts": random_ts(days_history_30),
             }
         )
 
@@ -181,17 +185,58 @@ def gen_securities(n_securities=500):
     return securities
 
 
+def inject_duplicate_orders(orders, duplicate_rate_orders):
+    n_duplicates = int(len(orders) * duplicate_rate_orders)
+
+    duplicated_orders = random.sample(orders, n_duplicates)
+
+    for order in duplicated_orders:
+        duplicate = order.copy()
+
+        # Keep the same order_id to simulate duplicated source records
+        # Optional: change created_ts slightly to mimic re-ingestion
+        duplicate["created_ts"] = (
+            datetime.fromisoformat(order["created_ts"])
+            + timedelta(seconds=random.randint(1, 300))
+        ).isoformat()
+
+        orders.append(duplicate)
+
+    return orders
+
+
+# 80/20 skew distribution
+def choose_skewed_security(securities):
+    top_n = max(1, int(len(securities) * 0.2))
+
+    top_securities = securities[:top_n]
+    other_securities = securities[top_n:]
+
+    if random.random() < cfg["top_stock_skew_ratio"]:
+        return random.choice(top_securities)
+
+    return random.choice(other_securities or securities)
+
+
 def gen_orders(accounts, securities, n_orders=200000):
     orders = []
 
     for i in range(1, n_orders + 1):
         account = random.choice(accounts)
-        security = random.choice(securities)
+        security = choose_skewed_security(securities=securities)
 
         quantity = random.choice(ORDER_QUANTITIES)
         price = round(security["base_price"] * random.uniform(0.85, 1.15), 2)
 
-        order_ts = random_ts(180)
+        order_ts = random_ts(days_history_180)
+        schema_change_date = datetime.fromisoformat(cfg["schema_change_date"])
+        order_dt = datetime.fromisoformat(order_ts)
+
+        order_channel = None
+
+        if order_dt >= schema_change_date:
+            order_channel = random.choice(["APP", "WEB", "BROKER"])
+
         status = random.choices(ORDER_STATUSES, weights=[0.10, 0.15, 0.55, 0.15, 0.05])[
             0
         ]
@@ -208,11 +253,17 @@ def gen_orders(accounts, securities, n_orders=200000):
                 "order_status": status,
                 "order_quantity": quantity,
                 "limit_price": price,
+                "order_channel": order_channel,
                 "order_timestamp": order_ts,
                 "created_ts": order_ts,
-                "updated_ts": random_ts(30),
+                "updated_ts": random_ts(days_history_30),
             }
         )
+
+    orders = inject_duplicate_orders(
+        orders=orders,
+        duplicate_rate_orders=cfg["duplicate_rate_orders"],
+    )
 
     df = write_parquet(orders, "orders.parquet")
     print(f"[orders] {len(df)} rows")
@@ -257,8 +308,8 @@ def gen_trades(orders):
                     "trade_price": trade_price,
                     "trade_amount": round(trade_qty * trade_price, 2),
                     "fee_amount": round(trade_qty * trade_price * 0.0015, 2),
-                    "trade_timestamp": random_ts(180),
-                    "created_ts": random_ts(180),
+                    "trade_timestamp": random_ts(days_history_180),
+                    "created_ts": random_ts(days_history_180),
                 }
             )
 
@@ -317,8 +368,8 @@ def gen_cash_transactions(accounts, trades, n_extra_cash=50000):
                 "transaction_status": random.choices(
                     CASH_TRANSACTION_STATUSES, weights=[0.94, 0.04, 0.02]
                 )[0],
-                "transaction_timestamp": random_ts(180),
-                "created_ts": random_ts(180),
+                "transaction_timestamp": random_ts(days_history_180),
+                "created_ts": random_ts(days_history_180),
             }
         )
 

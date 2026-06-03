@@ -1,0 +1,2 @@
+table,total_rows,unique_rows,extra_duplicate_rows,duplicated_rows_including_original,duplicate_rate_vs_original
+orders,204000,200000,4000,8000,0.02
