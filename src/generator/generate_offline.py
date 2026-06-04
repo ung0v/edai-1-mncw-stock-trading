@@ -1,17 +1,15 @@
 import os
 import random
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from config import load_config
 from faker import Faker
+from paths import CONFIG_PATH, OFFLINE_DIR
 
-BASE_DIR = Path(__file__).resolve().parent
-cfg = load_config(str(BASE_DIR / "config.yaml"))
-
-OUTPUT_DIR = BASE_DIR.parent / "data" / "raw" / "offline"
+cfg = load_config(str(CONFIG_PATH))
+OUTPUT_DIR = OFFLINE_DIR
 GENDERS = ["M", "F"]
 CITIES = ["Ho Chi Minh City", "Hanoi", "Da Nang", "Can Tho", "Hai Phong"]
 OCCUPATIONS = [
@@ -388,4 +386,4 @@ if __name__ == "__main__":
     orders = gen_orders(accounts, securities, n_orders=cfg["n_orders"])
     trades = gen_trades(orders)
     cash_transactions = gen_cash_transactions(accounts, trades)
-    print("\nDone! Files are in ./data/offline")
+    print(f"\nDone! Files are in {OUTPUT_DIR}")

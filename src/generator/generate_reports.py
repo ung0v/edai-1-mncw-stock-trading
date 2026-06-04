@@ -1,19 +1,18 @@
 import json
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from config import load_config
+from paths import (
+    CHARTS_DIR,
+    DATA_DIR,
+    OFFLINE_DIR,
+    REPORTS_DIR,
+    SAMPLES_DIR,
+    STREAM_EVENTS_PATH,
+)
 
 cfg = load_config()
-
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR.parent / "data" / "raw"
-OFFLINE_DIR = DATA_DIR / "offline"
-STREAM_PATH = DATA_DIR / "stream" / "trading_events" / "events.jsonl"
-REPORTS_DIR = BASE_DIR / "outputs" / "reports"
-SAMPLES_DIR = BASE_DIR / "outputs" / "samples"
-CHARTS_DIR = BASE_DIR / "outputs" / "charts"
 
 orders = pd.read_parquet(OFFLINE_DIR / "orders.parquet")
 
@@ -56,7 +55,7 @@ def gen_duplicate_summary():
         ]
     )
 
-    summary.to_csv("outputs/reports/duplicate_summary.csv", index=False)
+    summary.to_csv(REPORTS_DIR / "duplicate_summary.csv", index=False)
 
 
 def gen_skew_distribution_csv():
@@ -134,7 +133,7 @@ def gen_skew_distributon_png():
 
 
 def gen_event_volumne_by_minute_png():
-    events = pd.read_json(STREAM_PATH, lines=True)
+    events = pd.read_json(STREAM_EVENTS_PATH, lines=True)
 
     events["minute"] = pd.to_datetime(events["event_timestamp"]).dt.floor("min")
 

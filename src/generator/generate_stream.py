@@ -2,15 +2,10 @@ import json
 import random
 import uuid
 from datetime import datetime, time, timedelta
-from pathlib import Path
 
 import pandas as pd
 from config import load_config
-
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR.parent / "data" / "raw"
-STREAM_DIR = DATA_DIR / "stream"
-OUTPUT_PATH = STREAM_DIR / "trading_events" / "events.jsonl"
+from paths import CONFIG_PATH, OFFLINE_DIR, STREAM_EVENTS_PATH
 
 EVENT_TYPES = [
     "ORDER_PLACED",
@@ -23,7 +18,7 @@ EVENT_TYPES = [
     "LOGOUT",
 ]
 
-cfg = load_config(str(BASE_DIR / "config.yaml"))
+cfg = load_config(str(CONFIG_PATH))
 
 random.seed(cfg["random_seed"])
 
@@ -159,13 +154,9 @@ def generate_stream_for_duration(accounts, securities, cfg, start_dt, duration_m
 
 
 if __name__ == "__main__":
-    accounts = pd.read_parquet(DATA_DIR / "offline" / "accounts.parquet").to_dict(
-        "records"
-    )
+    accounts = pd.read_parquet(OFFLINE_DIR / "accounts.parquet").to_dict("records")
 
-    securities = pd.read_parquet(DATA_DIR / "offline" / "securities.parquet").to_dict(
-        "records"
-    )
+    securities = pd.read_parquet(OFFLINE_DIR / "securities.parquet").to_dict("records")
 
     print("Generating stream data...")
 
@@ -188,8 +179,8 @@ if __name__ == "__main__":
     for event in events[:3]:
         print(json.dumps(event, indent=2))
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    write_jsonl(events, OUTPUT_PATH)
+    STREAM_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    write_jsonl(events, STREAM_EVENTS_PATH)
 
     print(f"\nGenerated {len(events)} events")
-    print(f"Done! File is in {OUTPUT_PATH}")
+    print(f"Done! File is in {STREAM_EVENTS_PATH}")
