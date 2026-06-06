@@ -1,10 +1,16 @@
 import json
+import sys
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+
 from config import load_config
 from paths import (
     CHARTS_DIR,
+    CONFIG_PATH,
     DATA_DIR,
     OFFLINE_DIR,
     REPORTS_DIR,
@@ -12,7 +18,7 @@ from paths import (
     STREAM_EVENTS_PATH,
 )
 
-cfg = load_config()
+cfg = load_config(str(CONFIG_PATH))
 
 orders = pd.read_parquet(OFFLINE_DIR / "orders.parquet")
 
@@ -148,7 +154,7 @@ def gen_event_volumne_by_minute_png():
 
 
 def gen_sample_trading_events():
-    with open(STREAM_PATH) as src:
+    with open(STREAM_EVENTS_PATH) as src:
         sample = [next(src) for _ in range(1000)]
 
     with open(SAMPLES_DIR / "sample_trading_events.jsonl", "w") as dst:
@@ -228,7 +234,11 @@ def gen_stream_summary():
 
 
 def gen_schema_evolution_report():
-    orders["order_timestamp"] = pd.to_datetime(orders["order_timestamp"])
+    orders["order_timestamp"] = pd.to_datetime(
+        orders["order_timestamp"],
+        format="ISO8601",
+        errors="coerce",
+    )
     schema_change_date = pd.to_datetime(cfg["schema_change_date"])
 
     before_change = orders[orders["order_timestamp"] < schema_change_date]

@@ -1,8 +1,8 @@
 {
   "total_orders": 204000,
-  "unique_securities": 491,
+  "unique_securities": 494,
   "top_20_percent_securities": 98,
-  "orders_in_top_20_percent": 161995,
-  "top_20_percent_share": 0.7941,
+  "orders_in_top_20_percent": 160145,
+  "top_20_percent_share": 0.785,
   "expected_skew_ratio": 0.8
 }

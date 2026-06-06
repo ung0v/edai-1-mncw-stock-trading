@@ -1,9 +1,9 @@
 {
   "schema_change_date": "2026-05-19",
   "new_column": "order_channel",
-  "rows_before_change": 185892,
-  "rows_after_change": 18108,
-  "null_order_channel_before_change": 185892,
+  "rows_before_change": 183014,
+  "rows_after_change": 20986,
+  "null_order_channel_before_change": 183014,
   "null_order_channel_after_change": 0,
-  "non_null_order_channel_after_change": 18108
+  "non_null_order_channel_after_change": 20986
 }

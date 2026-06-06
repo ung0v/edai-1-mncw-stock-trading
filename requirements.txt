@@ -4,3 +4,7 @@ pyyaml
 faker
 pyarrow
 matplotlib
+fastapi
+sqlalchemy
+confluent_kafka
+pyspark

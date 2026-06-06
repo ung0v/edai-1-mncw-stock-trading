@@ -1,11 +1,16 @@
 import os
 import random
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from config import load_config
 from faker import Faker
+
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+
+from config import load_config
 from paths import CONFIG_PATH, OFFLINE_DIR
 
 cfg = load_config(str(CONFIG_PATH))

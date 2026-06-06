@@ -1,8 +1,8 @@
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = BASE_DIR.parents[1]
-CONFIG_PATH = BASE_DIR / "config.yaml"
+PROJECT_DIR = BASE_DIR
+CONFIG_PATH = PROJECT_DIR / "config.yaml"
 DATA_DIR = PROJECT_DIR / "data" / "raw"
 OFFLINE_DIR = DATA_DIR / "offline"
 STREAM_DIR = DATA_DIR / "stream"
