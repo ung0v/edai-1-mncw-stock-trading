@@ -241,6 +241,10 @@ make datahub-down
 - successful `stock_trading_pipeline` run in the Airflow UI
 - task logs for each stage
 
+Example screenshot:
+
+![Successful Airflow pipeline run](./images/airflow.png)
+
 ### MinIO
 
 Bucket:

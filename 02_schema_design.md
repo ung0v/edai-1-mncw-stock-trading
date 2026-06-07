@@ -380,6 +380,10 @@ Expected evidence for submission:
 - screenshot of successful Airflow DAG run
 - successful task logs for one core transformation stage
 
+Evidence screenshot:
+
+![Successful Airflow pipeline run](./images/airflow.png)
+
 ### 8.2 Pipeline Modules
 
 | Module | Purpose |
