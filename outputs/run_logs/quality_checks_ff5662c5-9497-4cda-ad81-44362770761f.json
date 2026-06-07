@@ -1,0 +1,22 @@
+{
+  "run_id": "ff5662c5-9497-4cda-ad81-44362770761f",
+  "pipeline_name": "quality_checks",
+  "start_ts": "2026-06-06T15:58:40.763497+00:00",
+  "end_ts": "2026-06-06T15:58:41.474314+00:00",
+  "status": "PASS",
+  "input_tables": [
+    "stg_orders",
+    "stg_trading_events",
+    "dim_customer",
+    "dim_account",
+    "dim_security",
+    "fact_order",
+    "fact_trade",
+    "feat_customer_90d",
+    "feat_stream_customer_60m"
+  ],
+  "output_files": [
+    "/opt/airflow/project/outputs/reports/pipeline_quality_report.json"
+  ],
+  "error_summary": null
+}

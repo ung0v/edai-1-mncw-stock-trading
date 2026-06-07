@@ -1,0 +1,240 @@
+{
+  "run_id": "0bfab12e-6aa6-44cd-a56f-519be31e65f6",
+  "start_ts": "2026-06-07T09:50:06.715407+00:00",
+  "end_ts": "2026-06-07T09:52:43.473676+00:00",
+  "status": "PASS",
+  "total_checks": 32,
+  "failed_checks": 0,
+  "checks": [
+    {
+      "check_name": "volume_min_rows",
+      "table": "stg_orders",
+      "status": "PASS",
+      "row_count": 200000,
+      "min_rows": 1
+    },
+    {
+      "check_name": "volume_min_rows",
+      "table": "stg_trading_events",
+      "status": "PASS",
+      "row_count": 1260487,
+      "min_rows": 1
+    },
+    {
+      "check_name": "volume_min_rows",
+      "table": "fact_order",
+      "status": "PASS",
+      "row_count": 200000,
+      "min_rows": 1
+    },
+    {
+      "check_name": "volume_min_rows",
+      "table": "fact_trade",
+      "status": "PASS",
+      "row_count": 166031,
+      "min_rows": 1
+    },
+    {
+      "check_name": "volume_min_rows",
+      "table": "feat_customer_90d",
+      "status": "PASS",
+      "row_count": 34220,
+      "min_rows": 1
+    },
+    {
+      "check_name": "volume_min_rows",
+      "table": "feat_stream_customer_60m",
+      "status": "PASS",
+      "row_count": 21518,
+      "min_rows": 1
+    },
+    {
+      "check_name": "unique_key",
+      "table": "stg_orders",
+      "column": "order_id",
+      "status": "PASS",
+      "duplicate_count": 0
+    },
+    {
+      "check_name": "unique_key",
+      "table": "stg_trading_events",
+      "column": "event_id",
+      "status": "PASS",
+      "duplicate_count": 0
+    },
+    {
+      "check_name": "unique_key",
+      "table": "dim_customer",
+      "column": "customer_id",
+      "status": "PASS",
+      "duplicate_count": 0
+    },
+    {
+      "check_name": "unique_key",
+      "table": "dim_account",
+      "column": "account_id",
+      "status": "PASS",
+      "duplicate_count": 0
+    },
+    {
+      "check_name": "unique_key",
+      "table": "dim_security",
+      "column": "security_id",
+      "status": "PASS",
+      "duplicate_count": 0
+    },
+    {
+      "check_name": "unique_key",
+      "table": "fact_order",
+      "column": "order_id",
+      "status": "PASS",
+      "duplicate_count": 0
+    },
+    {
+      "check_name": "unique_key",
+      "table": "fact_trade",
+      "column": "trade_id",
+      "status": "PASS",
+      "duplicate_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_order",
+      "column": "order_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_order",
+      "column": "customer_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_order",
+      "column": "account_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_order",
+      "column": "security_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_order",
+      "column": "order_timestamp",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_order",
+      "column": "order_amount",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_trade",
+      "column": "trade_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_trade",
+      "column": "order_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_trade",
+      "column": "customer_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_trade",
+      "column": "account_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_trade",
+      "column": "security_id",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_trade",
+      "column": "trade_timestamp",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "not_null",
+      "table": "fact_trade",
+      "column": "trade_amount",
+      "status": "PASS",
+      "null_count": 0
+    },
+    {
+      "check_name": "referential_integrity",
+      "fact_table": "fact_order",
+      "dim_table": "dim_customer",
+      "fact_key": "customer_id",
+      "dim_key": "customer_id",
+      "status": "PASS",
+      "missing_count": 0
+    },
+    {
+      "check_name": "referential_integrity",
+      "fact_table": "fact_order",
+      "dim_table": "dim_account",
+      "fact_key": "account_id",
+      "dim_key": "account_id",
+      "status": "PASS",
+      "missing_count": 0
+    },
+    {
+      "check_name": "referential_integrity",
+      "fact_table": "fact_order",
+      "dim_table": "dim_security",
+      "fact_key": "security_id",
+      "dim_key": "security_id",
+      "status": "PASS",
+      "missing_count": 0
+    },
+    {
+      "check_name": "freshness_available",
+      "table": "fact_order",
+      "timestamp_col": "order_timestamp",
+      "status": "PASS",
+      "max_timestamp": "2026-06-07 09:27:16.619617"
+    },
+    {
+      "check_name": "freshness_available",
+      "table": "fact_trade",
+      "timestamp_col": "trade_timestamp",
+      "status": "PASS",
+      "max_timestamp": "2026-06-07 09:00:53.777256"
+    },
+    {
+      "check_name": "freshness_available",
+      "table": "stg_trading_events",
+      "timestamp_col": "event_timestamp",
+      "status": "PASS",
+      "max_timestamp": "2026-06-07 14:59:00"
+    }
+  ]
+}
