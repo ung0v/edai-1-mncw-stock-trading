@@ -1,0 +1,9 @@
+{
+  "schema_change_date": "2026-05-19",
+  "new_column": "order_channel",
+  "rows_before_change": 182121,
+  "rows_after_change": 21879,
+  "null_order_channel_before_change": 182121,
+  "null_order_channel_after_change": 0,
+  "non_null_order_channel_after_change": 21879
+}

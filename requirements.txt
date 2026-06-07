@@ -1,0 +1,12 @@
+numpy
+pandas
+pyyaml
+faker
+pyarrow
+matplotlib
+fastapi
+sqlalchemy
+confluent_kafka
+pyspark==3.5.1
+delta-spark==3.2.0
+psycopg2-binary

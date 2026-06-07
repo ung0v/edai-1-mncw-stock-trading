@@ -1,0 +1,22 @@
+{
+  "run_id": "f7dceaee-c018-40a1-b59c-b9c4ba691ea2",
+  "pipeline_name": "quality_checks",
+  "start_ts": "2026-06-05T14:46:43.911913+00:00",
+  "end_ts": "2026-06-05T14:46:44.729328+00:00",
+  "status": "PASS",
+  "input_tables": [
+    "stg_orders",
+    "stg_trading_events",
+    "dim_customer",
+    "dim_account",
+    "dim_security",
+    "fact_order",
+    "fact_trade",
+    "feat_customer_90d",
+    "feat_stream_customer_60m"
+  ],
+  "output_files": [
+    "/Users/bovn/Downloads/EDAI-1/coursework/edai-1-mncw-stock-trading/outputs/reports/pipeline_quality_report.json"
+  ],
+  "error_summary": null
+}
