@@ -12,6 +12,7 @@ Objectives:
 - orchestrate the flow end to end
 - run data quality checks and record run metadata
 - optionally emit lineage metadata through DataHub
+- implement an offline analytical feature store, with online feature serving deferred to future work
 
 Implemented approach:
 
@@ -21,6 +22,11 @@ Implemented approach:
 - Airflow for orchestration
 - Kafka for event transport
 - PostgreSQL for curated exports
+
+Current scope note:
+
+- the implemented `feat_*` tables act as an offline feature store for analytics, model training support, and inspection
+- an online feature store for low-latency serving is intentionally out of scope for the current implementation
 
 Naming approach:
 
@@ -130,6 +136,10 @@ Bronze strategy:
 - add `ingest_ts`
 - add `batch_id`
 - add `source_file`
+
+Evidence screenshot:
+
+![MinIO Bronze Silver Gold layout](./images/minio.png)
 
 ### 3.3 Silver Layer
 
@@ -329,6 +339,17 @@ Gold outputs are also exported to PostgreSQL for easier inspection and BI-style 
 - grain: customer + feature timestamp
 - purpose: join stable customer history with recent stream behaviour
 
+### 7.5 Current Feature Store Boundary
+
+- implemented today:
+  - offline analytical feature tables in Gold
+  - batch-style recomputation through Spark
+  - feature export for downstream analytics and model support
+- not implemented yet:
+  - online feature store
+  - low-latency feature retrieval for real-time inference
+  - dedicated online/offline feature consistency layer
+
 ---
 
 ## 8. Data Pipeline Design and Implementation
@@ -353,6 +374,11 @@ Actual task sequence:
 10. `feature_transform`
 11. `quality_checks`
 12. `export_postgres`
+
+Expected evidence for submission:
+
+- screenshot of successful Airflow DAG run
+- successful task logs for one core transformation stage
 
 ### 8.2 Pipeline Modules
 
@@ -424,6 +450,12 @@ Conceptual lineage path:
 
 - Raw -> Bronze -> Silver -> Gold -> Features -> PostgreSQL export
 
+Current limitation:
+
+- DataHub metadata emission is implemented
+- however, the Airflow workflow is not yet appearing correctly in DataHub as a full pipeline lineage view
+- this remains a known integration issue in the current project state
+
 ---
 
 ## 11. Warehouse Optimisation
@@ -459,6 +491,10 @@ Implemented:
 - optional DataHub metadata emission
 
 Verified by direct execution in the Airflow runtime.
+
+Evidence screenshot for exported serving tables:
+
+![Exported PostgreSQL tables](./images/exported_postgres.png)
 
 ---
 
@@ -501,7 +537,8 @@ Current limitations:
 - no incremental merge implementation yet
 - no advanced point-in-time training join workflow beyond feature timestamps
 - Gold and feature jobs are heavier than necessary for local resources
-- full lineage visual evidence still depends on DataHub overlay setup
+- the current feature store is offline only; online feature serving is future work
+- full Airflow workflow visibility in DataHub is still incomplete even though metadata emission is present
 
 Recommended next steps:
 

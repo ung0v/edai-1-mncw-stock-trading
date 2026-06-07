@@ -16,6 +16,11 @@ Core stack:
 - PostgreSQL for exported serving tables
 - optional DataHub integration for lineage
 
+Current scope note:
+
+- the implemented feature store is offline and analytics-oriented
+- online feature serving is planned as future work
+
 ## What This Coursework Demonstrates
 
 - configurable offline and streaming data generation
@@ -36,7 +41,7 @@ airflow/dags/        orchestration DAG
 airflow/plugins/     DataHub Airflow plugin code
 data/                local raw source files
 outputs/             reports, charts, samples, run logs
-01_data_generator_stock_trading.md
+01_data_generator.md
 02_schema_design.md
 docker-compose.yml
 data-hub-docker-compose.yaml
@@ -248,6 +253,10 @@ Key areas to inspect:
 - `silver/`
 - `gold/`
 
+Example screenshot:
+
+![MinIO lakehouse layout](./images/minio.png)
+
 ### Local Evidence Outputs
 
 Important outputs:
@@ -280,6 +289,10 @@ The pipeline exports curated tables such as:
 - `feat_stream_customer_60m`
 - `feat_customer_unified`
 
+Example screenshot:
+
+![Exported PostgreSQL tables](./images/exported_postgres.png)
+
 ## DataHub Lineage
 
 Optional lineage stack:
@@ -292,9 +305,15 @@ This starts the overlay services from `data-hub-docker-compose.yaml`.
 
 The DAG includes an `emit_datahub_metadata` task. If DataHub is not enabled, that task safely skips actual emission.
 
+Current limitation:
+
+- dataset metadata emission is implemented
+- however, the Airflow pipeline itself is not yet shown correctly inside DataHub as a full workflow lineage view
+- this is a remaining integration gap rather than a core pipeline failure
+
 ## Coursework Documents
 
-- [01_data_generator_stock_trading.md](/Users/bovn/Downloads/EDAI-1/coursework/edai-1-mncw-stock-trading/01_data_generator_stock_trading.md)
+- [01_data_generator.md](/Users/bovn/Downloads/EDAI-1/coursework/edai-1-mncw-stock-trading/01_data_generator.md)
 - [02_schema_design.md](/Users/bovn/Downloads/EDAI-1/coursework/edai-1-mncw-stock-trading/02_schema_design.md)
 
 ## Notes and Limitations
@@ -303,6 +322,8 @@ The DAG includes an `emit_datahub_metadata` task. If DataHub is not enabled, tha
 - Silver deduplicates records back to business-level rows.
 - Gold and feature jobs are heavier than necessary for local resources, so Spark warnings can appear even when jobs succeed.
 - The implementation is coursework-focused rather than production-optimised.
+- The current feature store is an offline analytical store. An online feature store or low-latency feature serving layer is not implemented yet.
+- DataHub integration is partial: metadata emission exists, but Airflow workflow visibility in DataHub is still incomplete.
 
 ## Shut Down
 
