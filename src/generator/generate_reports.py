@@ -1,14 +1,9 @@
 import json
-import sys
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import pandas as pd
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from config import load_config
-from paths import (
+from src.common.config import load_config
+from src.common.paths import (
     CHARTS_DIR,
     CONFIG_PATH,
     DATA_DIR,

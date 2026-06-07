@@ -2,16 +2,11 @@ import json
 import random
 import uuid
 from datetime import datetime, time, timedelta
-from pathlib import Path
 
 import pandas as pd
 
-import sys
-
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from config import load_config
-from paths import CONFIG_PATH, OFFLINE_DIR, STREAM_EVENTS_PATH
+from src.common.config import load_config
+from src.common.paths import CONFIG_PATH, OFFLINE_DIR, STREAM_EVENTS_PATH
 
 EVENT_TYPES = [
     "ORDER_PLACED",

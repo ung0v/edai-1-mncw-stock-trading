@@ -1,39 +1,29 @@
 import json
-import sys
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
-import pandas as pd
+from pyspark.sql import functions as F
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+from src.common.paths import REPORTS_DIR, RUN_LOGS_DIR
+from src.common.spark import get_spark_session, layer_path
 
-
-from paths import OUTPUTS_DIR, PROJECT_DIR
-
-SILVER_DIR = PROJECT_DIR / "data" / "silver"
-GOLD_DIR = PROJECT_DIR / "data" / "gold"
-REPORTS_DIR = OUTPUTS_DIR / "reports"
-RUN_LOG_DIR = OUTPUTS_DIR / "run_logs"
 
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-RUN_LOG_DIR.mkdir(parents=True, exist_ok=True)
+RUN_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def now_utc():
     return datetime.now(timezone.utc).isoformat()
 
 
-def read_parquet(path):
-    if not path.exists():
-        raise FileNotFoundError(f"Missing table: {path}")
-
-    return pd.read_parquet(path)
+def read_delta(spark, layer: str, table_name: str):
+    return spark.read.format("delta").load(layer_path(layer, table_name))
 
 
 def check_unique(df, table_name, column):
-    duplicate_count = len(df) - df[column].nunique()
-
+    total_rows = df.count()
+    distinct_rows = df.select(column).distinct().count()
+    duplicate_count = total_rows - distinct_rows
     return {
         "check_name": "unique_key",
         "table": table_name,
@@ -45,10 +35,9 @@ def check_unique(df, table_name, column):
 
 def check_not_null(df, table_name, columns):
     results = []
-
+    row = df.select([F.sum(F.col(column).isNull().cast("int")).alias(column) for column in columns]).collect()[0].asDict()
     for column in columns:
-        null_count = df[column].isna().sum()
-
+        null_count = row[column]
         results.append(
             {
                 "check_name": "not_null",
@@ -58,20 +47,11 @@ def check_not_null(df, table_name, columns):
                 "null_count": int(null_count),
             }
         )
-
     return results
 
 
-def check_referential_integrity(
-    fact_df,
-    dim_df,
-    fact_table,
-    dim_table,
-    fact_key,
-    dim_key,
-):
-    missing_count = fact_df[~fact_df[fact_key].isin(dim_df[dim_key])].shape[0]
-
+def check_referential_integrity(fact_df, dim_df, fact_table, dim_table, fact_key, dim_key):
+    missing_count = fact_df.join(dim_df.select(dim_key).distinct(), fact_df[fact_key] == dim_df[dim_key], "left_anti").count()
     return {
         "check_name": "referential_integrity",
         "fact_table": fact_table,
@@ -84,8 +64,7 @@ def check_referential_integrity(
 
 
 def check_volume(table_name, df, min_rows=1):
-    row_count = len(df)
-
+    row_count = df.count()
     return {
         "check_name": "volume_min_rows",
         "table": table_name,
@@ -96,123 +75,61 @@ def check_volume(table_name, df, min_rows=1):
 
 
 def check_freshness(table_name, df, timestamp_col):
-    max_ts = pd.to_datetime(df[timestamp_col], errors="coerce").max()
-
+    max_ts = df.select(F.max(timestamp_col).alias("max_ts")).collect()[0]["max_ts"]
     return {
         "check_name": "freshness_available",
         "table": table_name,
         "timestamp_col": timestamp_col,
-        "status": "PASS" if pd.notna(max_ts) else "FAIL",
-        "max_timestamp": None if pd.isna(max_ts) else str(max_ts),
+        "status": "PASS" if max_ts is not None else "FAIL",
+        "max_timestamp": None if max_ts is None else str(max_ts),
     }
 
 
 def run_quality_checks():
+    spark = get_spark_session("quality-checks")
     run_id = str(uuid.uuid4())
     start_ts = now_utc()
-
     checks = []
 
-    silver_orders = read_parquet(SILVER_DIR / "stg_orders.parquet")
-    silver_events = read_parquet(SILVER_DIR / "stg_trading_events.parquet")
+    silver_orders = read_delta(spark, "silver", "stg_orders")
+    silver_events = read_delta(spark, "silver", "stg_trading_events")
+    dim_customer = read_delta(spark, "gold", "dim_customer")
+    dim_account = read_delta(spark, "gold", "dim_account")
+    dim_security = read_delta(spark, "gold", "dim_security")
+    fact_order = read_delta(spark, "gold", "fact_order")
+    fact_trade = read_delta(spark, "gold", "fact_trade")
+    feat_customer_90d = read_delta(spark, "gold", "feat_customer_90d")
+    feat_stream_customer_60m = read_delta(spark, "gold", "feat_stream_customer_60m")
 
-    dim_customer = read_parquet(GOLD_DIR / "dim_customer.parquet")
-    dim_account = read_parquet(GOLD_DIR / "dim_account.parquet")
-    dim_security = read_parquet(GOLD_DIR / "dim_security.parquet")
-    fact_order = read_parquet(GOLD_DIR / "fact_order.parquet")
-    fact_trade = read_parquet(GOLD_DIR / "fact_trade.parquet")
-    feat_customer_90d = read_parquet(GOLD_DIR / "feat_customer_90d.parquet")
-    feat_stream_customer_60m = read_parquet(
-        GOLD_DIR / "feat_stream_customer_60m.parquet"
-    )
+    checks.extend([
+        check_volume("stg_orders", silver_orders),
+        check_volume("stg_trading_events", silver_events),
+        check_volume("fact_order", fact_order),
+        check_volume("fact_trade", fact_trade),
+        check_volume("feat_customer_90d", feat_customer_90d),
+        check_volume("feat_stream_customer_60m", feat_stream_customer_60m),
+        check_unique(silver_orders, "stg_orders", "order_id"),
+        check_unique(silver_events, "stg_trading_events", "event_id"),
+        check_unique(dim_customer, "dim_customer", "customer_id"),
+        check_unique(dim_account, "dim_account", "account_id"),
+        check_unique(dim_security, "dim_security", "security_id"),
+        check_unique(fact_order, "fact_order", "order_id"),
+        check_unique(fact_trade, "fact_trade", "trade_id"),
+    ])
 
-    checks.append(check_volume("stg_orders", silver_orders))
-    checks.append(check_volume("stg_trading_events", silver_events))
-    checks.append(check_volume("fact_order", fact_order))
-    checks.append(check_volume("fact_trade", fact_trade))
-    checks.append(check_volume("feat_customer_90d", feat_customer_90d))
-    checks.append(check_volume("feat_stream_customer_60m", feat_stream_customer_60m))
+    checks.extend(check_not_null(fact_order, "fact_order", ["order_id", "customer_id", "account_id", "security_id", "order_timestamp", "order_amount"]))
+    checks.extend(check_not_null(fact_trade, "fact_trade", ["trade_id", "order_id", "customer_id", "account_id", "security_id", "trade_timestamp", "trade_amount"]))
 
-    checks.append(check_unique(silver_orders, "stg_orders", "order_id"))
-    checks.append(check_unique(silver_events, "stg_trading_events", "event_id"))
-    checks.append(check_unique(dim_customer, "dim_customer", "customer_id"))
-    checks.append(check_unique(dim_account, "dim_account", "account_id"))
-    checks.append(check_unique(dim_security, "dim_security", "security_id"))
-    checks.append(check_unique(fact_order, "fact_order", "order_id"))
-    checks.append(check_unique(fact_trade, "fact_trade", "trade_id"))
-
-    checks.extend(
-        check_not_null(
-            fact_order,
-            "fact_order",
-            [
-                "order_id",
-                "customer_id",
-                "account_id",
-                "security_id",
-                "order_timestamp",
-                "order_amount",
-            ],
-        )
-    )
-
-    checks.extend(
-        check_not_null(
-            fact_trade,
-            "fact_trade",
-            [
-                "trade_id",
-                "order_id",
-                "customer_id",
-                "account_id",
-                "security_id",
-                "trade_timestamp",
-                "trade_amount",
-            ],
-        )
-    )
-
-    checks.append(
-        check_referential_integrity(
-            fact_df=fact_order,
-            dim_df=dim_customer,
-            fact_table="fact_order",
-            dim_table="dim_customer",
-            fact_key="customer_id",
-            dim_key="customer_id",
-        )
-    )
-
-    checks.append(
-        check_referential_integrity(
-            fact_df=fact_order,
-            dim_df=dim_account,
-            fact_table="fact_order",
-            dim_table="dim_account",
-            fact_key="account_id",
-            dim_key="account_id",
-        )
-    )
-
-    checks.append(
-        check_referential_integrity(
-            fact_df=fact_order,
-            dim_df=dim_security,
-            fact_table="fact_order",
-            dim_table="dim_security",
-            fact_key="security_id",
-            dim_key="security_id",
-        )
-    )
-
-    checks.append(check_freshness("fact_order", fact_order, "order_timestamp"))
-    checks.append(check_freshness("fact_trade", fact_trade, "trade_timestamp"))
-    checks.append(
-        check_freshness("stg_trading_events", silver_events, "event_timestamp")
-    )
+    checks.extend([
+        check_referential_integrity(fact_order, dim_customer, "fact_order", "dim_customer", "customer_id", "customer_id"),
+        check_referential_integrity(fact_order, dim_account, "fact_order", "dim_account", "account_id", "account_id"),
+        check_referential_integrity(fact_order, dim_security, "fact_order", "dim_security", "security_id", "security_id"),
+        check_freshness("fact_order", fact_order, "order_timestamp"),
+        check_freshness("fact_trade", fact_trade, "trade_timestamp"),
+        check_freshness("stg_trading_events", silver_events, "event_timestamp"),
+    ])
 
     failed_checks = [check for check in checks if check["status"] == "FAIL"]
-
     quality_report = {
         "run_id": run_id,
         "start_ts": start_ts,
@@ -224,9 +141,7 @@ def run_quality_checks():
     }
 
     report_path = REPORTS_DIR / "pipeline_quality_report.json"
-
-    with open(report_path, "w") as f:
-        json.dump(quality_report, f, indent=2)
+    report_path.write_text(json.dumps(quality_report, indent=2))
 
     run_log = {
         "run_id": run_id,
@@ -249,20 +164,15 @@ def run_quality_checks():
         "error_summary": None if not failed_checks else failed_checks[:5],
     }
 
-    run_log_path = RUN_LOG_DIR / f"quality_checks_{run_id}.json"
-
-    with open(run_log_path, "w") as f:
-        json.dump(run_log, f, indent=2)
+    run_log_path = RUN_LOGS_DIR / f"quality_checks_{run_id}.json"
+    run_log_path.write_text(json.dumps(run_log, indent=2))
 
     print("Quality checks completed")
     print(f"status={quality_report['status']}")
     print(f"report={report_path}")
     print(f"run_log={run_log_path}")
 
-    if failed_checks:
-        print("Failed checks:")
-        for check in failed_checks[:5]:
-            print(check)
+    spark.stop()
 
 
 if __name__ == "__main__":

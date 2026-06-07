@@ -1,11 +1,6 @@
-import sys
-from pathlib import Path
-
 import pandas as pd
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from paths import OFFLINE_DIR
+from src.common.paths import OFFLINE_DIR
 
 orders = pd.read_parquet(OFFLINE_DIR / "orders.parquet")
 

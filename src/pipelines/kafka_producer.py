@@ -1,13 +1,10 @@
 import json
 import os
-import sys
 from pathlib import Path
 
 from confluent_kafka import Producer
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from paths import STREAM_EVENTS_PATH
+from src.common.paths import STREAM_EVENTS_PATH
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "trading_events")

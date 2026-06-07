@@ -1,15 +1,10 @@
 import json
 import os
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 from confluent_kafka import Consumer, KafkaException
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-
-from paths import PROJECT_DIR
+from src.common.paths import PROJECT_DIR
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "trading_events")

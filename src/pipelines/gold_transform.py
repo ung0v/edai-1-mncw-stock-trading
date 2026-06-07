@@ -1,169 +1,110 @@
-import sys
-from pathlib import Path
+from pyspark.sql import Window
+from pyspark.sql import functions as F
 
-import pandas as pd
-
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from paths import PROJECT_DIR
-
-SILVER_DIR = PROJECT_DIR / "data" / "silver"
-GOLD_DIR = PROJECT_DIR / "data" / "gold"
+from src.common.spark import get_spark_session, layer_path, write_delta
 
 
-def read_silver(table_name: str) -> pd.DataFrame:
-    path = SILVER_DIR / f"stg_{table_name}.parquet"
-
-    if not path.exists():
-        raise FileNotFoundError(f"Missing silver table: {path}")
-
-    return pd.read_parquet(path)
+def read_silver(spark, table_name: str):
+    return spark.read.format("delta").load(layer_path("silver", f"stg_{table_name}"))
 
 
-def write_gold(table_name: str, df: pd.DataFrame):
-    GOLD_DIR.mkdir(parents=True, exist_ok=True)
-
-    path = GOLD_DIR / f"{table_name}.parquet"
-    df.to_parquet(path, index=False)
-
-    return path
+def write_gold(table_name: str, df, partition_by: list[str] | None = None):
+    output_path = layer_path("gold", table_name)
+    write_delta(df, output_path, mode="overwrite", partition_by=partition_by)
+    return output_path
 
 
-def build_dim_customer(customers: pd.DataFrame) -> pd.DataFrame:
-    df = customers.copy()
-    df = df.sort_values("customer_id").reset_index(drop=True)
-
-    df.insert(0, "customer_key", range(1, len(df) + 1))
-
-    return df[
-        [
-            "customer_key",
-            "customer_id",
-            "full_name",
-            "gender",
-            "date_of_birth",
-            "city",
-            "province",
-            "occupation",
-            "risk_profile",
-            "kyc_status",
-            "customer_segment",
-            "signup_ts",
-            "created_ts",
-            "updated_ts",
-        ]
-    ]
+def add_surrogate_key(df, business_key: str, surrogate_key: str):
+    window = Window.orderBy(F.col(business_key))
+    return df.orderBy(business_key).withColumn(surrogate_key, F.row_number().over(window))
 
 
-def build_dim_account(accounts: pd.DataFrame) -> pd.DataFrame:
-    df = accounts.copy()
-    df = df.sort_values("account_id").reset_index(drop=True)
-
-    df.insert(0, "account_key", range(1, len(df) + 1))
-
-    return df[
-        [
-            "account_key",
-            "account_id",
-            "customer_id",
-            "account_type",
-            "account_status",
-            "opened_ts",
-            "closed_ts",
-            "created_ts",
-            "updated_ts",
-        ]
-    ]
-
-
-def build_dim_security(securities: pd.DataFrame) -> pd.DataFrame:
-    df = securities.copy()
-    df = df.sort_values("security_id").reset_index(drop=True)
-
-    df.insert(0, "security_key", range(1, len(df) + 1))
-
-    return df[
-        [
-            "security_key",
-            "security_id",
-            "ticker",
-            "security_name",
-            "exchange",
-            "security_type",
-            "sector",
-            "listed_date",
-            "is_active",
-            "base_price",
-            "created_ts",
-            "updated_ts",
-        ]
-    ]
-
-
-def build_dim_date(*timestamp_series: pd.Series) -> pd.DataFrame:
-    all_dates = []
-
-    for series in timestamp_series:
-        dates = pd.to_datetime(series, errors="coerce").dt.date.dropna()
-        all_dates.extend(dates.tolist())
-
-    unique_dates = sorted(set(all_dates))
-
-    df = pd.DataFrame({"calendar_date": pd.to_datetime(unique_dates)})
-
-    df["date_key"] = df["calendar_date"].dt.strftime("%Y%m%d").astype(int)
-    df["day_of_week"] = df["calendar_date"].dt.day_name()
-    df["month"] = df["calendar_date"].dt.month
-    df["quarter"] = df["calendar_date"].dt.quarter
-    df["year"] = df["calendar_date"].dt.year
-    df["is_weekend"] = df["calendar_date"].dt.dayofweek >= 5
-
-    return df[
-        [
-            "date_key",
-            "calendar_date",
-            "day_of_week",
-            "month",
-            "quarter",
-            "year",
-            "is_weekend",
-        ]
-    ]
-
-
-def build_fact_order(
-    orders: pd.DataFrame,
-    dim_customer: pd.DataFrame,
-    dim_account: pd.DataFrame,
-    dim_security: pd.DataFrame,
-) -> pd.DataFrame:
-    df = orders.copy()
-
-    df["order_date_key"] = (
-        pd.to_datetime(df["order_timestamp"]).dt.strftime("%Y%m%d").astype(int)
-    )
-    df["order_amount"] = df["order_quantity"] * df["limit_price"]
-
-    df = df.merge(
-        dim_customer[["customer_key", "customer_id"]],
-        on="customer_id",
-        how="left",
+def build_dim_customer(customers):
+    return add_surrogate_key(customers, "customer_id", "customer_key").select(
+        "customer_key",
+        "customer_id",
+        "full_name",
+        "gender",
+        "date_of_birth",
+        "city",
+        "province",
+        "occupation",
+        "risk_profile",
+        "kyc_status",
+        "customer_segment",
+        "signup_ts",
+        "created_ts",
+        "updated_ts",
     )
 
-    df = df.merge(
-        dim_account[["account_key", "account_id"]],
-        on="account_id",
-        how="left",
+
+def build_dim_account(accounts):
+    return add_surrogate_key(accounts, "account_id", "account_key").select(
+        "account_key",
+        "account_id",
+        "customer_id",
+        "account_type",
+        "account_status",
+        "opened_ts",
+        "closed_ts",
+        "created_ts",
+        "updated_ts",
     )
 
-    df = df.merge(
-        dim_security[["security_key", "security_id"]],
-        on="security_id",
-        how="left",
+
+def build_dim_security(securities):
+    return add_surrogate_key(securities, "security_id", "security_key").select(
+        "security_key",
+        "security_id",
+        "ticker",
+        "security_name",
+        "exchange",
+        "security_type",
+        "sector",
+        "listed_date",
+        "is_active",
+        "base_price",
+        "created_ts",
+        "updated_ts",
     )
 
-    return df[
-        [
+
+def build_dim_date(orders, trades, cash_transactions):
+    dates = (
+        orders.select(F.to_date("order_timestamp").alias("calendar_date"))
+        .unionByName(trades.select(F.to_date("trade_timestamp").alias("calendar_date")))
+        .unionByName(cash_transactions.select(F.to_date("transaction_timestamp").alias("calendar_date")))
+        .filter(F.col("calendar_date").isNotNull())
+        .distinct()
+    )
+
+    return dates.select(
+        F.date_format("calendar_date", "yyyyMMdd").cast("int").alias("date_key"),
+        "calendar_date",
+        F.date_format("calendar_date", "EEEE").alias("day_of_week"),
+        F.month("calendar_date").alias("month"),
+        F.quarter("calendar_date").alias("quarter"),
+        F.year("calendar_date").alias("year"),
+        F.dayofweek("calendar_date").isin([1, 7]).alias("is_weekend"),
+    )
+
+
+def build_fact_order(orders, dim_customer, dim_account, dim_security):
+    customer_keys = dim_customer.select("customer_id", "customer_key")
+    account_keys = dim_account.select("account_id", "account_key")
+    security_keys = dim_security.select(
+        "security_id",
+        "security_key",
+        F.col("ticker").alias("dim_ticker"),
+    )
+
+    return (
+        orders.withColumn("order_date_key", F.date_format("order_timestamp", "yyyyMMdd").cast("int"))
+        .withColumn("order_amount", F.col("order_quantity") * F.col("limit_price"))
+        .join(customer_keys, on="customer_id", how="left")
+        .join(account_keys, on="account_id", how="left")
+        .join(security_keys, on="security_id", how="left")
+        .select(
             "order_id",
             "customer_key",
             "account_key",
@@ -172,7 +113,7 @@ def build_fact_order(
             "customer_id",
             "account_id",
             "security_id",
-            "ticker",
+            F.coalesce(F.col("ticker"), F.col("dim_ticker")).alias("ticker"),
             "order_side",
             "order_type",
             "order_status",
@@ -183,42 +124,25 @@ def build_fact_order(
             "order_timestamp",
             "created_ts",
             "updated_ts",
-        ]
-    ]
-
-
-def build_fact_trade(
-    trades: pd.DataFrame,
-    dim_customer: pd.DataFrame,
-    dim_account: pd.DataFrame,
-    dim_security: pd.DataFrame,
-) -> pd.DataFrame:
-    df = trades.copy()
-
-    df["trade_date_key"] = (
-        pd.to_datetime(df["trade_timestamp"]).dt.strftime("%Y%m%d").astype(int)
+        )
     )
 
-    df = df.merge(
-        dim_customer[["customer_key", "customer_id"]],
-        on="customer_id",
-        how="left",
+
+def build_fact_trade(trades, dim_customer, dim_account, dim_security):
+    customer_keys = dim_customer.select("customer_id", "customer_key")
+    account_keys = dim_account.select("account_id", "account_key")
+    security_keys = dim_security.select(
+        "security_id",
+        "security_key",
+        F.col("ticker").alias("dim_ticker"),
     )
 
-    df = df.merge(
-        dim_account[["account_key", "account_id"]],
-        on="account_id",
-        how="left",
-    )
-
-    df = df.merge(
-        dim_security[["security_key", "security_id"]],
-        on="security_id",
-        how="left",
-    )
-
-    return df[
-        [
+    return (
+        trades.withColumn("trade_date_key", F.date_format("trade_timestamp", "yyyyMMdd").cast("int"))
+        .join(customer_keys, on="customer_id", how="left")
+        .join(account_keys, on="account_id", how="left")
+        .join(security_keys, on="security_id", how="left")
+        .select(
             "trade_id",
             "order_id",
             "customer_key",
@@ -228,7 +152,7 @@ def build_fact_trade(
             "customer_id",
             "account_id",
             "security_id",
-            "ticker",
+            F.coalesce(F.col("ticker"), F.col("dim_ticker")).alias("ticker"),
             "trade_side",
             "trade_quantity",
             "trade_price",
@@ -236,35 +160,19 @@ def build_fact_trade(
             "fee_amount",
             "trade_timestamp",
             "created_ts",
-        ]
-    ]
-
-
-def build_fact_cash_transaction(
-    cash_transactions: pd.DataFrame,
-    dim_customer: pd.DataFrame,
-    dim_account: pd.DataFrame,
-) -> pd.DataFrame:
-    df = cash_transactions.copy()
-
-    df["transaction_date_key"] = (
-        pd.to_datetime(df["transaction_timestamp"]).dt.strftime("%Y%m%d").astype(int)
+        )
     )
 
-    df = df.merge(
-        dim_customer[["customer_key", "customer_id"]],
-        on="customer_id",
-        how="left",
-    )
 
-    df = df.merge(
-        dim_account[["account_key", "account_id"]],
-        on="account_id",
-        how="left",
-    )
+def build_fact_cash_transaction(cash_transactions, dim_customer, dim_account):
+    customer_keys = dim_customer.select("customer_id", "customer_key")
+    account_keys = dim_account.select("account_id", "account_key")
 
-    return df[
-        [
+    return (
+        cash_transactions.withColumn("transaction_date_key", F.date_format("transaction_timestamp", "yyyyMMdd").cast("int"))
+        .join(customer_keys, on="customer_id", how="left")
+        .join(account_keys, on="account_id", how="left")
+        .select(
             "cash_transaction_id",
             "customer_key",
             "account_key",
@@ -278,52 +186,35 @@ def build_fact_cash_transaction(
             "transaction_status",
             "transaction_timestamp",
             "created_ts",
-        ]
-    ]
-
-
-def build_obt_customer_trading_activity(
-    dim_customer: pd.DataFrame,
-    fact_order: pd.DataFrame,
-    fact_trade: pd.DataFrame,
-    fact_cash_transaction: pd.DataFrame,
-) -> pd.DataFrame:
-    order_agg = (
-        fact_order.groupby("customer_id")
-        .agg(
-            total_orders=("order_id", "count"),
-            total_buy_orders=("order_side", lambda x: (x == "BUY").sum()),
-            total_sell_orders=("order_side", lambda x: (x == "SELL").sum()),
-            total_order_amount=("order_amount", "sum"),
-            first_order_ts=("order_timestamp", "min"),
-            last_order_ts=("order_timestamp", "max"),
         )
-        .reset_index()
     )
 
-    trade_agg = (
-        fact_trade.groupby("customer_id")
-        .agg(
-            total_trades=("trade_id", "count"),
-            total_trade_amount=("trade_amount", "sum"),
-            total_fee_amount=("fee_amount", "sum"),
-            first_trade_ts=("trade_timestamp", "min"),
-            last_trade_ts=("trade_timestamp", "max"),
-        )
-        .reset_index()
+
+def build_obt_customer_trading_activity(dim_customer, fact_order, fact_trade, fact_cash_transaction):
+    order_agg = fact_order.groupBy("customer_id").agg(
+        F.count("order_id").alias("total_orders"),
+        F.sum(F.when(F.col("order_side") == "BUY", 1).otherwise(0)).alias("total_buy_orders"),
+        F.sum(F.when(F.col("order_side") == "SELL", 1).otherwise(0)).alias("total_sell_orders"),
+        F.sum("order_amount").alias("total_order_amount"),
+        F.min("order_timestamp").alias("first_order_ts"),
+        F.max("order_timestamp").alias("last_order_ts"),
     )
 
-    cash_agg = (
-        fact_cash_transaction.groupby("customer_id")
-        .agg(
-            total_cash_transactions=("cash_transaction_id", "count"),
-            net_cash_amount=("amount", "sum"),
-        )
-        .reset_index()
+    trade_agg = fact_trade.groupBy("customer_id").agg(
+        F.count("trade_id").alias("total_trades"),
+        F.sum("trade_amount").alias("total_trade_amount"),
+        F.sum("fee_amount").alias("total_fee_amount"),
+        F.min("trade_timestamp").alias("first_trade_ts"),
+        F.max("trade_timestamp").alias("last_trade_ts"),
     )
 
-    obt = dim_customer[
-        [
+    cash_agg = fact_cash_transaction.groupBy("customer_id").agg(
+        F.count("cash_transaction_id").alias("total_cash_transactions"),
+        F.sum("amount").alias("net_cash_amount"),
+    )
+
+    return (
+        dim_customer.select(
             "customer_key",
             "customer_id",
             "city",
@@ -331,92 +222,69 @@ def build_obt_customer_trading_activity(
             "kyc_status",
             "customer_segment",
             "signup_ts",
-        ]
-    ].copy()
-
-    obt = obt.merge(order_agg, on="customer_id", how="left")
-    obt = obt.merge(trade_agg, on="customer_id", how="left")
-    obt = obt.merge(cash_agg, on="customer_id", how="left")
-
-    metric_cols = [
-        "total_orders",
-        "total_buy_orders",
-        "total_sell_orders",
-        "total_order_amount",
-        "total_trades",
-        "total_trade_amount",
-        "total_fee_amount",
-        "total_cash_transactions",
-        "net_cash_amount",
-    ]
-
-    for col in metric_cols:
-        obt[col] = obt[col].fillna(0)
-
-    return obt
+        )
+        .join(order_agg, on="customer_id", how="left")
+        .join(trade_agg, on="customer_id", how="left")
+        .join(cash_agg, on="customer_id", how="left")
+        .fillna(
+            0,
+            subset=[
+                "total_orders",
+                "total_buy_orders",
+                "total_sell_orders",
+                "total_order_amount",
+                "total_trades",
+                "total_trade_amount",
+                "total_fee_amount",
+                "total_cash_transactions",
+                "net_cash_amount",
+            ],
+        )
+    )
 
 
 def run_gold_transform():
-    customers = read_silver("customers")
-    accounts = read_silver("accounts")
-    securities = read_silver("securities")
-    orders = read_silver("orders")
-    trades = read_silver("trades")
-    cash_transactions = read_silver("cash_transactions")
+    spark = get_spark_session("gold-transform")
+
+    customers = read_silver(spark, "customers")
+    accounts = read_silver(spark, "accounts")
+    securities = read_silver(spark, "securities")
+    orders = read_silver(spark, "orders")
+    trades = read_silver(spark, "trades")
+    cash_transactions = read_silver(spark, "cash_transactions")
 
     dim_customer = build_dim_customer(customers)
     dim_account = build_dim_account(accounts)
     dim_security = build_dim_security(securities)
+    dim_date = build_dim_date(orders, trades, cash_transactions)
 
-    dim_date = build_dim_date(
-        orders["order_timestamp"],
-        trades["trade_timestamp"],
-        cash_transactions["transaction_timestamp"],
-    )
-
-    fact_order = build_fact_order(
-        orders=orders,
-        dim_customer=dim_customer,
-        dim_account=dim_account,
-        dim_security=dim_security,
-    )
-
-    fact_trade = build_fact_trade(
-        trades=trades,
-        dim_customer=dim_customer,
-        dim_account=dim_account,
-        dim_security=dim_security,
-    )
-
-    fact_cash_transaction = build_fact_cash_transaction(
-        cash_transactions=cash_transactions,
-        dim_customer=dim_customer,
-        dim_account=dim_account,
-    )
-
+    fact_order = build_fact_order(orders, dim_customer, dim_account, dim_security)
+    fact_trade = build_fact_trade(trades, dim_customer, dim_account, dim_security)
+    fact_cash_transaction = build_fact_cash_transaction(cash_transactions, dim_customer, dim_account)
     obt_customer_trading_activity = build_obt_customer_trading_activity(
-        dim_customer=dim_customer,
-        fact_order=fact_order,
-        fact_trade=fact_trade,
-        fact_cash_transaction=fact_cash_transaction,
+        dim_customer, fact_order, fact_trade, fact_cash_transaction
     )
 
     outputs = {
-        "dim_customer": dim_customer,
-        "dim_account": dim_account,
-        "dim_security": dim_security,
-        "dim_date": dim_date,
-        "fact_order": fact_order,
-        "fact_trade": fact_trade,
-        "fact_cash_transaction": fact_cash_transaction,
-        "obt_customer_trading_activity": obt_customer_trading_activity,
+        "dim_customer": (dim_customer, None),
+        "dim_account": (dim_account, None),
+        "dim_security": (dim_security, None),
+        "dim_date": (dim_date, None),
+        "fact_order": (fact_order.withColumn("order_date", F.to_date("order_timestamp")), ["order_date"]),
+        "fact_trade": (fact_trade.withColumn("trade_date", F.to_date("trade_timestamp")), ["trade_date"]),
+        "fact_cash_transaction": (
+            fact_cash_transaction.withColumn("transaction_date", F.to_date("transaction_timestamp")),
+            ["transaction_date"],
+        ),
+        "obt_customer_trading_activity": (obt_customer_trading_activity, None),
     }
 
     print("Gold transform completed")
+    for table_name, (df, partition_by) in outputs.items():
+        path = write_gold(table_name, df, partition_by=partition_by)
+        print(f"[{table_name}] rows={df.count()} output={path}")
 
-    for table_name, df in outputs.items():
-        path = write_gold(table_name, df)
-        print(f"[{table_name}] rows={len(df)} output={path}")
+    spark.stop()
 
 
 if __name__ == "__main__":

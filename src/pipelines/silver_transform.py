@@ -1,156 +1,106 @@
-import sys
-from pathlib import Path
+from pyspark.sql import functions as F
 
-import pandas as pd
-
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from paths import PROJECT_DIR
-
-BRONZE_DIR = PROJECT_DIR / "data" / "bronze"
-SILVER_DIR = PROJECT_DIR / "data" / "silver"
+from src.common.spark import dedup_latest, get_spark_session, layer_path, write_delta
+from src.common.tables import BRONZE_TABLES
 
 
-TABLES = [
-    "customers",
-    "accounts",
-    "securities",
-    "orders",
-    "trades",
-    "cash_transactions",
-    "trading_events",
-]
+TIMESTAMP_COLUMNS = {
+    "customers": ["signup_ts", "created_ts", "updated_ts"],
+    "accounts": ["opened_ts", "closed_ts", "created_ts", "updated_ts"],
+    "securities": ["listed_date", "created_ts", "updated_ts"],
+    "orders": ["order_timestamp", "created_ts", "updated_ts"],
+    "trades": ["trade_timestamp", "created_ts"],
+    "cash_transactions": ["transaction_timestamp", "created_ts"],
+    "trading_events": ["event_timestamp", "created_ts"],
+}
 
 
-def read_latest_bronze_table(table_name: str) -> pd.DataFrame:
-    table_dir = BRONZE_DIR / table_name
-
-    if not table_dir.exists():
-        raise FileNotFoundError(f"Missing bronze table directory: {table_dir}")
-
-    files = sorted(table_dir.glob("*.parquet"))
-
-    if not files:
-        raise FileNotFoundError(f"No bronze parquet files found for {table_name}")
-
-    latest_file = files[-1]
-    return pd.read_parquet(latest_file)
+def read_bronze_table(spark, table_name: str):
+    return spark.read.format("delta").load(layer_path("bronze", table_name))
 
 
-def standardize_timestamps(
-    df: pd.DataFrame, timestamp_columns: list[str]
-) -> pd.DataFrame:
-    df = df.copy()
-
-    for col in timestamp_columns:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-
+def standardize_timestamps(df, columns: list[str]):
+    for column in columns:
+        if column in df.columns:
+            df = df.withColumn(column, F.to_timestamp(F.col(column)))
     return df
 
 
-def dedup_latest(
-    df: pd.DataFrame, key: str, order_col: str = "created_ts"
-) -> pd.DataFrame:
-    if key not in df.columns:
-        return df
+def add_record_date(df):
+    timestamp_sources = [column for column in ["updated_ts", "created_ts"] if column in df.columns]
+    if not timestamp_sources:
+        return df, None
 
-    if order_col not in df.columns:
-        return df.drop_duplicates(subset=[key], keep="last")
+    return df.withColumn("record_date", F.to_date(F.coalesce(*[F.col(column) for column in timestamp_sources]))), ["record_date"]
 
+
+def clean_customers(df):
+    return dedup_latest(standardize_timestamps(df, TIMESTAMP_COLUMNS["customers"]), ["customer_id"], "updated_ts")
+
+
+def clean_accounts(df):
+    return dedup_latest(standardize_timestamps(df, TIMESTAMP_COLUMNS["accounts"]), ["account_id"], "updated_ts")
+
+
+def clean_securities(df):
+    return dedup_latest(standardize_timestamps(df, TIMESTAMP_COLUMNS["securities"]), ["security_id"], "updated_ts")
+
+
+def clean_orders(df):
+    if "limit_price" not in df.columns:
+        df = df.withColumn("limit_price", F.lit(None).cast("double"))
+
+    df = standardize_timestamps(df, TIMESTAMP_COLUMNS["orders"])
+    df = df.withColumn("order_quantity", F.col("order_quantity").cast("double"))
+    df = df.withColumn("limit_price", F.col("limit_price").cast("double"))
+    df = df.filter(
+        F.col("order_id").isNotNull()
+        & F.col("account_id").isNotNull()
+        & F.col("customer_id").isNotNull()
+        & F.col("security_id").isNotNull()
+        & F.col("order_timestamp").isNotNull()
+    )
+    return dedup_latest(df, ["order_id"], "created_ts")
+
+
+def clean_trades(df):
+    df = standardize_timestamps(df, TIMESTAMP_COLUMNS["trades"])
+    for column in ["trade_quantity", "trade_price", "trade_amount", "fee_amount"]:
+        df = df.withColumn(column, F.col(column).cast("double"))
+    df = df.filter(
+        F.col("trade_id").isNotNull()
+        & F.col("order_id").isNotNull()
+        & F.col("trade_timestamp").isNotNull()
+    )
+    return dedup_latest(df, ["trade_id"], "created_ts")
+
+
+def clean_cash_transactions(df):
+    df = standardize_timestamps(df, TIMESTAMP_COLUMNS["cash_transactions"])
+    df = df.withColumn("amount", F.col("amount").cast("double"))
+    df = df.filter(
+        F.col("cash_transaction_id").isNotNull()
+        & F.col("account_id").isNotNull()
+        & F.col("customer_id").isNotNull()
+        & F.col("transaction_timestamp").isNotNull()
+    )
+    return dedup_latest(df, ["cash_transaction_id"], "created_ts")
+
+
+def clean_trading_events(df):
+    df = standardize_timestamps(df, TIMESTAMP_COLUMNS["trading_events"])
+    df = df.filter(
+        F.col("event_id").isNotNull()
+        & F.col("account_id").isNotNull()
+        & F.col("customer_id").isNotNull()
+        & F.col("event_timestamp").isNotNull()
+        & F.col("created_ts").isNotNull()
+    )
+    df = dedup_latest(df, ["event_id"], "created_ts")
     return (
-        df.sort_values(order_col)
-        .drop_duplicates(subset=[key], keep="last")
-        .reset_index(drop=True)
+        df.withColumn("is_late_arrival", F.col("created_ts") > F.col("event_timestamp"))
+        .withColumn("arrival_delay_seconds", F.col("created_ts").cast("long") - F.col("event_timestamp").cast("long"))
     )
-
-
-def clean_customers(df: pd.DataFrame) -> pd.DataFrame:
-    df = standardize_timestamps(df, ["signup_ts", "created_ts", "updated_ts"])
-    df = dedup_latest(df, "customer_id", "updated_ts")
-    return df
-
-
-def clean_accounts(df: pd.DataFrame) -> pd.DataFrame:
-    df = standardize_timestamps(
-        df, ["opened_ts", "closed_ts", "created_ts", "updated_ts"]
-    )
-    df = dedup_latest(df, "account_id", "updated_ts")
-    return df
-
-
-def clean_securities(df: pd.DataFrame) -> pd.DataFrame:
-    df = standardize_timestamps(df, ["listed_date", "created_ts", "updated_ts"])
-    df = dedup_latest(df, "security_id", "updated_ts")
-    return df
-
-
-def clean_orders(df: pd.DataFrame) -> pd.DataFrame:
-    df = standardize_timestamps(df, ["order_timestamp", "created_ts", "updated_ts"])
-
-    df["order_quantity"] = pd.to_numeric(df["order_quantity"], errors="coerce")
-    df["limit_price"] = pd.to_numeric(df["limit_price"], errors="coerce")
-
-    df = df[df["order_id"].notna()]
-    df = df[df["account_id"].notna()]
-    df = df[df["customer_id"].notna()]
-    df = df[df["security_id"].notna()]
-    df = df[df["order_timestamp"].notna()]
-
-    df = dedup_latest(df, "order_id", "created_ts")
-
-    return df
-
-
-def clean_trades(df: pd.DataFrame) -> pd.DataFrame:
-    df = standardize_timestamps(df, ["trade_timestamp", "created_ts"])
-
-    df["trade_quantity"] = pd.to_numeric(df["trade_quantity"], errors="coerce")
-    df["trade_price"] = pd.to_numeric(df["trade_price"], errors="coerce")
-    df["trade_amount"] = pd.to_numeric(df["trade_amount"], errors="coerce")
-    df["fee_amount"] = pd.to_numeric(df["fee_amount"], errors="coerce")
-
-    df = df[df["trade_id"].notna()]
-    df = df[df["order_id"].notna()]
-    df = df[df["trade_timestamp"].notna()]
-
-    df = dedup_latest(df, "trade_id", "created_ts")
-
-    return df
-
-
-def clean_cash_transactions(df: pd.DataFrame) -> pd.DataFrame:
-    df = standardize_timestamps(df, ["transaction_timestamp", "created_ts"])
-
-    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
-
-    df = df[df["cash_transaction_id"].notna()]
-    df = df[df["account_id"].notna()]
-    df = df[df["customer_id"].notna()]
-    df = df[df["transaction_timestamp"].notna()]
-
-    df = dedup_latest(df, "cash_transaction_id", "created_ts")
-
-    return df
-
-
-def clean_trading_events(df: pd.DataFrame) -> pd.DataFrame:
-    df = standardize_timestamps(df, ["event_timestamp", "created_ts"])
-
-    df = df[df["event_id"].notna()]
-    df = df[df["account_id"].notna()]
-    df = df[df["customer_id"].notna()]
-    df = df[df["event_timestamp"].notna()]
-    df = df[df["created_ts"].notna()]
-
-    df = dedup_latest(df, "event_id", "created_ts")
-
-    df["is_late_arrival"] = df["created_ts"] > df["event_timestamp"]
-    df["arrival_delay_seconds"] = (
-        df["created_ts"] - df["event_timestamp"]
-    ).dt.total_seconds()
-
-    return df
 
 
 CLEANERS = {
@@ -164,45 +114,39 @@ CLEANERS = {
 }
 
 
-def write_silver_table(table_name: str, df: pd.DataFrame):
-    SILVER_DIR.mkdir(parents=True, exist_ok=True)
-
-    output_path = SILVER_DIR / f"stg_{table_name}.parquet"
-    df.to_parquet(output_path, index=False)
-
-    return output_path
-
-
 def run_silver_transform():
+    spark = get_spark_session("silver-transform")
     results = []
 
-    for table in TABLES:
-        bronze_df = read_latest_bronze_table(table)
-        cleaner = CLEANERS[table]
+    for table in BRONZE_TABLES:
+        bronze_df = read_bronze_table(spark, table)
+        silver_df = CLEANERS[table](bronze_df)
+        output_path = layer_path("silver", f"stg_{table}")
+        partition_by = ["event_date"] if table == "trading_events" else None
 
-        silver_df = cleaner(bronze_df)
-        output_path = write_silver_table(table, silver_df)
+        if table == "trading_events":
+            silver_df = silver_df.withColumn("event_date", F.to_date("event_timestamp"))
+        elif "created_ts" in silver_df.columns:
+            silver_df, partition_by = add_record_date(silver_df)
 
+        write_delta(silver_df, output_path, mode="overwrite", partition_by=partition_by)
         results.append(
             {
                 "table": table,
-                "bronze_rows": len(bronze_df),
-                "silver_rows": len(silver_df),
-                "removed_rows": len(bronze_df) - len(silver_df),
-                "output_path": str(output_path),
+                "bronze_rows": bronze_df.count(),
+                "silver_rows": silver_df.count(),
+                "output_path": output_path,
             }
         )
 
     print("Silver transform completed")
-
     for result in results:
         print(
-            f"[{result['table']}] "
-            f"bronze={result['bronze_rows']} "
-            f"silver={result['silver_rows']} "
-            f"removed={result['removed_rows']} "
-            f"output={result['output_path']}"
+            f"[{result['table']}] bronze={result['bronze_rows']} "
+            f"silver={result['silver_rows']} output={result['output_path']}"
         )
+
+    spark.stop()
 
 
 if __name__ == "__main__":

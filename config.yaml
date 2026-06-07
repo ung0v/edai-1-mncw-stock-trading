@@ -21,3 +21,27 @@ market_close_duration_min: 15
 # Others
 schema_change_date: "2026-05-19"
 random_seed: 42
+
+storage:
+  backend: minio
+  bucket: stock-lakehouse
+  raw_prefix: raw
+  bronze_prefix: bronze
+  silver_prefix: silver
+  gold_prefix: gold
+  checkpoint_prefix: checkpoints
+  minio:
+    endpoint: http://minio:9000
+    access_key: minioadmin
+    secret_key: minioadmin
+    region: us-east-1
+    path_style_access: true
+
+spark:
+  app_name: stock-trading-lakehouse
+  master: local[*]
+  shuffle_partitions: 8
+  jars_packages:
+    - io.delta:delta-spark_2.12:3.2.0
+    - org.apache.hadoop:hadoop-aws:3.3.4
+    - com.amazonaws:aws-java-sdk-bundle:1.12.262

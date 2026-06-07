@@ -1,11 +1,10 @@
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.10.2
+  build: .
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
-    _PIP_ADDITIONAL_REQUIREMENTS: pandas pyarrow faker pyyaml matplotlib sqlalchemy psycopg2-binary confluent-kafka pyspark
     PYTHONPATH: /opt/airflow/project
   volumes:
     - ${AIRFLOW_PROJ_DIR:-./airflow}/dags:/opt/airflow/dags
@@ -32,13 +31,15 @@ services:
       start_period: 5s
     volumes:
       - airflow_postgres_data:/var/lib/postgresql/data
+    networks:
+      - data-stack-network
 
     # ── Airflow Web UI ───────────────────────────────────────────────────────────
   airflow-webserver:
     <<: *airflow-common
     command: webserver
     ports:
-      - "8080:8080" # Visit http://localhost:8082  (user: airflow / pass: airflow)
+      - "58080:8080"
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -47,6 +48,8 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
+    networks:
+      - data-stack-network
 
   # ── Airflow Scheduler ────────────────────────────────────────────────────────
   airflow-scheduler:
@@ -65,6 +68,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    networks:
+      - data-stack-network
 
   # ── One-time DB init + admin user creation ──────────────────────────────────
   airflow-init:
@@ -76,6 +81,8 @@ services:
       _AIRFLOW_WWW_USER_CREATE: "true"
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+    networks:
+      - data-stack-network
 
   postgres:
     image: postgres:16
@@ -86,8 +93,51 @@ services:
       POSTGRES_DB: stock_dw
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d stock_dw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     volumes:
       - stock_dw_postgres_data:/var/lib/postgresql/data
+    networks:
+      - data-stack-network
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-03T21-03-04Z
+    container_name: stock_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - minio_data:/data
+    networks:
+      - data-stack-network
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-02-08T19-14-21Z
+    container_name: stock_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/stock-lakehouse
+      "
+    networks:
+      - data-stack-network
 
   kafka:
     image: confluentinc/cp-kafka:latest
@@ -110,10 +160,24 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - kafka_data:/var/lib/kafka/data
+    networks:
+      - data-stack-network
+
+networks:
+  data-stack-network:
+    name: data-stack-network
+    external: true
 
 volumes:
   airflow_postgres_data:
   stock_dw_postgres_data:
   kafka_data:
+  minio_data:
