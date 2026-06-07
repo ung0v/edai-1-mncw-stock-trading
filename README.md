@@ -234,6 +234,40 @@ make datahub-up
 make datahub-down
 ```
 
+## Reset Data and Storage
+
+For day-to-day development, the most useful reset is:
+
+```bash
+make reset-data
+```
+
+This clears:
+
+- local raw files under `data/`
+- local evidence outputs under `outputs/`
+- Airflow logs under `airflow/logs/`
+- MinIO lakehouse prefixes:
+  - `bronze/`
+  - `silver/`
+  - `gold/`
+  - `raw/`
+  - `checkpoints/`
+- exported PostgreSQL tables in `stock_dw`
+
+Notes:
+
+- `make reset-data` expects MinIO and PostgreSQL containers to be running
+- it is intended for re-running the coursework pipeline from a clean logical state
+
+For a heavier reset that also removes Docker volumes:
+
+```bash
+make reset-all
+```
+
+This is more destructive. It stops the compose stack, removes compose-managed volumes, and clears local generated files and logs.
+
 ## What To Inspect For Marking
 
 ### Airflow

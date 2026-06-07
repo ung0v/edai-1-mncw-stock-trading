@@ -1,4 +1,6 @@
-.PHONY: generate reports bronze silver gold features quality pipeline clean
+.PHONY: generate reports bronze silver gold features quality pipeline clean \
+	clean-raw clean-local-lake clean-outputs clean-airflow-logs \
+	reset-minio reset-postgres reset-kafka reset-data reset-all
 
 network-up:
 	docker network inspect data-stack-network >/dev/null 2>&1 || docker network create data-stack-network
@@ -61,8 +63,48 @@ kafka-consume:
 pipeline: generate reports bronze silver gold features quality
 
 clean:
+	$(MAKE) clean-raw
+	$(MAKE) clean-local-lake
+	$(MAKE) clean-outputs
+
+clean-raw:
 	rm -rf data/raw
+	rm -rf data/stream
+
+clean-local-lake:
 	rm -rf data/bronze
 	rm -rf data/silver
 	rm -rf data/gold
+
+clean-outputs:
 	rm -rf outputs
+
+clean-airflow-logs:
+	rm -rf airflow/logs/*
+
+reset-minio:
+	docker run --rm --network data-stack-network minio/mc /bin/sh -c '\
+		mc alias set local http://minio:9000 minioadmin minioadmin && \
+		mc rm -r --force local/stock-lakehouse/bronze || true && \
+		mc rm -r --force local/stock-lakehouse/silver || true && \
+		mc rm -r --force local/stock-lakehouse/gold || true && \
+		mc rm -r --force local/stock-lakehouse/raw || true && \
+		mc rm -r --force local/stock-lakehouse/checkpoints || true'
+
+reset-postgres:
+	docker exec stock_dw_postgres psql -U postgres -d stock_dw -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+reset-kafka:
+	docker compose down
+	docker volume rm $$(docker volume ls -q | grep 'kafka_data' || true)
+
+reset-data:
+	$(MAKE) clean
+	$(MAKE) clean-airflow-logs
+	$(MAKE) reset-minio
+	$(MAKE) reset-postgres
+
+reset-all:
+	docker compose down -v --remove-orphans
+	$(MAKE) clean
+	$(MAKE) clean-airflow-logs
