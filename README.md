@@ -1,6 +1,3 @@
-<<<<<<< Updated upstream
-
-=======
 # Stock Trading Lakehouse Coursework
 
 ## Overview
@@ -345,4 +342,3 @@ Stop the DataHub overlay only:
 ```bash
 make datahub-down
 ```
->>>>>>> Stashed changes
